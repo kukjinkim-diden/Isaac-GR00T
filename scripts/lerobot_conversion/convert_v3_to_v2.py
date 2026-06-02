@@ -51,17 +51,16 @@ from lerobot.datasets.utils import (
     DEFAULT_DATA_PATH,
     DEFAULT_VIDEO_PATH,
     EPISODES_DIR,
+    INFO_PATH,
     LEGACY_EPISODES_PATH,
     LEGACY_EPISODES_STATS_PATH,
     LEGACY_TASKS_PATH,
-    load_info,
-    load_tasks,
     serialize_dict,
-    unflatten_dict,
-    write_info,
 )
+from lerobot.datasets.io_utils import load_info, load_tasks, write_info
 from lerobot.utils.constants import HF_LEROBOT_HOME
-from lerobot.utils.utils import init_logging
+from lerobot.utils.io_utils import write_json
+from lerobot.utils.utils import init_logging, unflatten_dict
 
 
 V21 = "v2.1"
@@ -90,7 +89,7 @@ def _to_serializable(value: Any) -> Any:
 
 
 def validate_local_dataset_version(local_path: Path) -> None:
-    info = load_info(local_path)
+    info = load_info(local_path).to_dict()
     dataset_version = info.get("codebase_version", "unknown")
     if dataset_version != V30:
         raise ValueError(
@@ -140,7 +139,7 @@ def convert_info(
     episode_records: list[dict[str, Any]],
     video_keys: list[str],
 ) -> None:
-    info = load_info(root)
+    info = load_info(root).to_dict()
     logging.info("Converting info.json metadata to v2.1 schema")
 
     total_episodes = info.get("total_episodes") or len(episode_records)
@@ -167,7 +166,8 @@ def convert_info(
     info["total_chunks"] = math.ceil(total_episodes / chunks_size) if total_episodes > 0 else 0
     info["total_videos"] = total_episodes * len(video_keys)
 
-    write_info(info, new_root)
+    (new_root / INFO_PATH).parent.mkdir(parents=True, exist_ok=True)
+    write_json(info, new_root / INFO_PATH)
 
 
 def _group_episodes_by_data_file(
@@ -493,7 +493,7 @@ def convert_dataset(
         snapshot_download(repo_id, repo_type="dataset", local_dir=root)
 
     episode_records = load_episode_records(root)
-    info = load_info(root)
+    info = load_info(root).to_dict()
     video_keys = [key for key, ft in info["features"].items() if ft.get("dtype") == "video"]
     chunks_size = info.get("chunks_size", DEFAULT_CHUNK_SIZE)
 

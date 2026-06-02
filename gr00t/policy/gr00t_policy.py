@@ -412,9 +412,21 @@ class Gr00tPolicy(BasePolicy):
         batched_states = {}
         for k in self.modality_configs["state"].modality_keys:
             batched_states[k] = np.stack([s[k] for s in states], axis=0)  # (B, T, D)
+
+        # [DEBUG] log raw model output and reference state to diagnose zero-delta issue
+        import logging as _logging
+        _dbg = _logging.getLogger(__name__)
+        _norm_np = normalized_action.cpu().numpy()
+        _dbg.info("[DECODE-DEBUG] normalized_action[0,0,:14] = %s",
+                  np.array2string(_norm_np[0, 0, :14], precision=4, suppress_small=False))
+        _dbg.info("[DECODE-DEBUG] batched_states joint_pos[0,0,:] = %s",
+                  np.array2string(batched_states.get("joint_pos", np.zeros((1,1,1)))[0, 0, :], precision=4))
+
         unnormalized_action = self.processor.decode_action(
             normalized_action.cpu().numpy(), self.embodiment_tag, batched_states
         )
+        _dbg.info("[DECODE-DEBUG] unnorm_joint_pos[0,0,:] = %s",
+                  np.array2string(unnormalized_action.get("joint_pos", np.zeros((1,1,1)))[0, 0, :], precision=4))
 
         # Cast all actions to float32 for consistency
         casted_action = {
