@@ -317,45 +317,72 @@ class Gr00tTrainer(Trainer):
         # Record last loss for testing purposes.
         self.loss = loss
 
-        # --------------------------------------------------------------
-        # Accuracy calculation
-        # --------------------------------------------------------------
-        if (
-            self.state.global_step % self.args.logging_steps == 0
-            and model.training
-            and "labels" in inputs
-        ):
-            if self.action_offset is not None:
-                preds = outputs.logits.detach()[:, :, self.action_offset :].argmax(dim=-1).cpu()
-            else:
-                preds = outputs.logits.detach().argmax(dim=-1).cpu()
-            with torch.no_grad():
-                acc_local = _batch_accuracy(
-                    preds, inputs["labels"].to(device=preds.device), self.action_offset
-                )
-            acc_tensor = torch.tensor(acc_local.item(), device=loss.device)
-            acc_mean = self._nested_gather(acc_tensor).mean().item()
+        if self.state.global_step % self.args.logging_steps == 0 and model.training:
+            # ----------------------------------------------------------
+            # Per-body-part action loss
+            # DIDEN layout: left_arm[0:7] | right_arm[7:14]
+            #               | left_hand[14:34] | right_hand[34:54]
+            # ----------------------------------------------------------
+            if isinstance(outputs, dict) and "action_loss" in outputs:
+                a_loss = outputs["action_loss"].detach()  # (B, H, D)
+                a_mask = outputs["action_mask"].detach()  # (B, H, D)
 
-            if self.args.local_rank in (-1, 0):
-                self.log({"train_accuracy": acc_mean})
+                def _part_loss(s: int, e: int) -> float:
+                    l, m = a_loss[..., s:e], a_mask[..., s:e]
+                    cnt = m.sum()
+                    return (l.sum() / cnt.clamp(min=1e-6)).item() if cnt > 0 else 0.0
 
-                # Log a sample of ground-truth vs predicted action tokens from
-                # the first batch element so users can verify the model is
-                # learning the right behaviors.
-                shifted_labels = inputs["labels"][:1, 1:].cpu()
-                shifted_preds = preds[:1, :-1]
-                mask_0 = shifted_labels[0] != -100
-                gt_tokens = shifted_labels[0][mask_0][:20]
+                d = a_loss.shape[-1]
+                part_logs: dict[str, float] = {}
+                if d >= 7:
+                    part_logs["train_loss/left_arm"] = _part_loss(0, 7)
+                if d >= 14:
+                    part_logs["train_loss/right_arm"] = _part_loss(7, 14)
+                if d >= 34:
+                    part_logs["train_loss/left_hand"] = _part_loss(14, 34)
+                if d >= 54:
+                    part_logs["train_loss/right_hand"] = _part_loss(34, 54)
+
+                if part_logs and self.args.local_rank in (-1, 0):
+                    self.log(part_logs)
+                    logging.debug(
+                        "Step %d — body-part losses: %s",
+                        self.state.global_step,
+                        {k: f"{v:.6f}" for k, v in part_logs.items()},
+                    )
+
+            # ----------------------------------------------------------
+            # Accuracy calculation (token-level, for tokenised heads)
+            # ----------------------------------------------------------
+            if "labels" in inputs:
                 if self.action_offset is not None:
-                    gt_tokens = gt_tokens - self.action_offset
-                gt_sample = gt_tokens.tolist()
-                pred_sample = shifted_preds[0][mask_0[: shifted_preds.shape[1]]][:20].tolist()
-                logging.info(
-                    "Step %d — GT vs Pred (first 20 action tokens, batch[0]):\n"
-                    "  GT:   %s\n  Pred: %s",
-                    self.state.global_step,
-                    gt_sample,
-                    pred_sample,
-                )
+                    preds = outputs.logits.detach()[:, :, self.action_offset :].argmax(dim=-1).cpu()
+                else:
+                    preds = outputs.logits.detach().argmax(dim=-1).cpu()
+                with torch.no_grad():
+                    acc_local = _batch_accuracy(
+                        preds, inputs["labels"].to(device=preds.device), self.action_offset
+                    )
+                acc_tensor = torch.tensor(acc_local.item(), device=loss.device)
+                acc_mean = self._nested_gather(acc_tensor).mean().item()
+
+                if self.args.local_rank in (-1, 0):
+                    self.log({"train_accuracy": acc_mean})
+
+                    shifted_labels = inputs["labels"][:1, 1:].cpu()
+                    shifted_preds = preds[:1, :-1]
+                    mask_0 = shifted_labels[0] != -100
+                    gt_tokens = shifted_labels[0][mask_0][:20]
+                    if self.action_offset is not None:
+                        gt_tokens = gt_tokens - self.action_offset
+                    gt_sample = gt_tokens.tolist()
+                    pred_sample = shifted_preds[0][mask_0[: shifted_preds.shape[1]]][:20].tolist()
+                    logging.info(
+                        "Step %d — GT vs Pred (first 20 action tokens, batch[0]):\n"
+                        "  GT:   %s\n  Pred: %s",
+                        self.state.global_step,
+                        gt_sample,
+                        pred_sample,
+                    )
 
         return (loss, outputs) if return_outputs else loss
