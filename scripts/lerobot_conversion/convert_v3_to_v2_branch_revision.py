@@ -13,15 +13,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilities to convert a LeRobot dataset from codebase version v3.0 back to v2.1.
+"""Convert a LeRobot dataset from v3.0 back to v2.1, targeting a specific branch and revision.
+
+Output directory: {repo_name}_v2.1_{branch}_{revision}  (revision omitted when not specified)
 
 Usage examples
 --------------
 
-- Convert a lerobot v3.0 dataset that already exists locally (The v3.0 path will be overwritten by the v2.1 path and a folder with the suffix _v30 will be created containing the original v3.0 dataset)
+# Download and convert a specific branch (latest commit)
+python convert_v3_to_v2_branch_revision.py \
+    --repo-id DidenRobotics/push-buttons \
+    --branch push-green-button
 
-- This needs lerobot version atleast after commit f55c6e89f.
+# Download and convert a specific commit on a branch
+python convert_v3_to_v2_branch_revision.py \
+    --repo-id DidenRobotics/push-buttons \
+    --branch push-green-button \
+    --revision a3f8c2d1b
 
+# Use a local root directory and force re-download
+python convert_v3_to_v2_branch_revision.py \
+    --repo-id DidenRobotics/push-buttons \
+    --branch push-green-button \
+    --root /tmp/datasets \
+    --force-conversion
+
+- This needs lerobot version at least after commit f55c6e89f.
 - Tested on lerobot version 0.4.0 (commit: f25ac02)
 """
 
@@ -243,25 +260,21 @@ def _group_episodes_by_video_file(
 def _validate_video_paths(src: Path, dst: Path) -> None:
     """Validate source and destination paths to prevent security issues."""
 
-    # Convert to Path objects if they aren't already
     src = Path(src)
     dst = Path(dst)
 
-    # Resolve paths to handle symlinks and normalize them
     try:
         src_resolved = src.resolve()
         dst_resolved = dst.resolve()
     except OSError as exc:
         raise ValueError(f"Invalid path provided: {exc}") from exc
 
-    # Check that source file exists and is a regular file
     if not src_resolved.exists():
         raise FileNotFoundError(f"Source video file does not exist: {src_resolved}")
 
     if not src_resolved.is_file():
         raise ValueError(f"Source path is not a regular file: {src_resolved}")
 
-    # Validate file extensions for video files
     valid_video_extensions = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
     if src_resolved.suffix.lower() not in valid_video_extensions:
         raise ValueError(f"Source file does not have a valid video extension: {src_resolved}")
@@ -269,18 +282,12 @@ def _validate_video_paths(src: Path, dst: Path) -> None:
     if dst_resolved.suffix.lower() not in valid_video_extensions:
         raise ValueError(f"Destination file does not have a valid video extension: {dst_resolved}")
 
-    # Check for path traversal attempts in the original paths
-    src_str = str(src)
-    dst_str = str(dst)
-
-    # Ensure paths don't contain null bytes or other control characters
-    for path_str, name in [(src_str, "source"), (dst_str, "destination")]:
+    for path_str, name in [(str(src), "source"), (str(dst), "destination")]:
         if "\0" in path_str:
             raise ValueError(f"Path contains null bytes: {name} path")
         if any(ord(c) < 32 and c not in ["\t", "\n", "\r"] for c in path_str):
             raise ValueError(f"Path contains invalid control characters: {name} path")
 
-    # Additional check: ensure resolved paths don't point to system directories
     system_dirs = {"/etc", "/sys", "/proc", "/dev", "/boot", "/root"}
     for resolved_path, name in [(src_resolved, "source"), (dst_resolved, "destination")]:
         path_str = str(resolved_path)
@@ -288,70 +295,43 @@ def _validate_video_paths(src: Path, dst: Path) -> None:
             if path_str.startswith(sys_dir + "/") or path_str == sys_dir:
                 raise ValueError(f"Path points to system directory: {name} path {resolved_path}")
 
-    # Ensure the destination directory can be created safely
     try:
         dst_parent = dst_resolved.parent
         if not dst_parent.exists():
-            # Check if we can create the parent directory structure
             dst_parent.resolve()
     except OSError as exc:
         raise ValueError(f"Cannot create destination directory: {exc}") from exc
 
 
-def _extract_video_segment(
-    src: Path,
-    dst: Path,
-    start: float,
-    end: float,
-) -> None:
-    # Validate paths to prevent security issues
+def _extract_video_segment(src: Path, dst: Path, start: float, end: float) -> None:
     _validate_video_paths(src, dst)
 
-    # Validate numeric parameters to prevent injection
-    if not (0 <= start <= 86400):  # 24 hours max
+    if not (0 <= start <= 86400):
         raise ValueError(f"Invalid start time: {start}")
-    if not (0 <= end <= 86400):  # 24 hours max
+    if not (0 <= end <= 86400):
         raise ValueError(f"Invalid end time: {end}")
     if start >= end:
         raise ValueError(f"Start time {start} must be less than end time {end}")
 
     duration = max(end - start, MIN_VIDEO_DURATION)
 
-    # Validate duration is reasonable
-    if duration > 3600:  # 1 hour max
+    if duration > 3600:
         raise ValueError(f"Video segment duration too long: {duration} seconds")
 
     dst.parent.mkdir(parents=True, exist_ok=True)
 
-    # Build command with validated parameters
     cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-ss",
-        f"{start:.6f}",
-        "-i",
-        str(src),
-        "-t",
-        f"{duration:.6f}",
-        "-c",
-        "copy",
-        "-avoid_negative_ts",
-        "1",
-        "-y",
-        str(dst),
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-ss", f"{start:.6f}",
+        "-i", str(src),
+        "-t", f"{duration:.6f}",
+        "-c", "copy",
+        "-avoid_negative_ts", "1",
+        "-y", str(dst),
     ]
 
     try:
-        # Use more secure subprocess call with explicit timeout
-        subprocess.run(
-            cmd,
-            check=True,
-            timeout=300,
-            capture_output=True,
-            text=True,  # 5 minute timeout
-        )
+        subprocess.run(cmd, check=True, timeout=300, capture_output=True, text=True)
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"ffmpeg timed out while processing video '{src}' -> '{dst}'") from exc
     except FileNotFoundError as exc:
@@ -436,7 +416,6 @@ def convert_episodes_metadata(new_root: Path, episode_records: list[dict[str, An
                 and key not in {"dataset_from_index", "dataset_to_index"}
             }
 
-            # Ensure legacy episodes include a length; compute from dataset indices if missing
             if "length" not in legacy_episode:
                 if "dataset_from_index" in record and "dataset_to_index" in record:
                     legacy_episode["length"] = int(record["dataset_to_index"]) - int(
@@ -474,60 +453,95 @@ def copy_ancillary_directories(root: Path, new_root: Path) -> None:
             shutil.copytree(source, new_root / subdir, dirs_exist_ok=True)
 
 
+def _build_output_name(repo_name: str, branch: str, revision: str | None) -> str:
+    parts = [repo_name, V21, branch]
+    if revision:
+        parts.append(revision)
+    return "_".join(parts)
+
+
 def convert_dataset(
     repo_id: str,
+    branch: str,
+    revision: str | None = None,
     root: str | Path | None = None,
     force_conversion: bool = False,
 ) -> None:
-    root = HF_LEROBOT_HOME / repo_id if root is None else Path(root) / repo_id
+    repo_name = repo_id.split("/")[-1]
+    base_dir = HF_LEROBOT_HOME if root is None else Path(root)
 
-    if root.exists() and force_conversion:
-        logging.info("--force-conversion enabled: removing existing snapshot at %s", root)
-        shutil.rmtree(root)
+    # branch + optional revision → unique source download directory
+    src_suffix = f"{branch}_{revision}" if revision else branch
+    src_root = base_dir / f"{repo_name}_{src_suffix}"
 
-    if root.exists():
-        validate_local_dataset_version(root)
-        logging.info("Using existing local dataset at %s", root)
+    if src_root.exists() and force_conversion:
+        logging.info("--force-conversion enabled: removing existing snapshot at %s", src_root)
+        shutil.rmtree(src_root)
+
+    if src_root.exists():
+        validate_local_dataset_version(src_root)
+        logging.info("Using existing local dataset at %s", src_root)
     else:
-        logging.info("Downloading dataset snapshot from the Hub")
-        snapshot_download(repo_id, repo_type="dataset", local_dir=root)
+        # revision이 주어지면 해당 커밋을, 없으면 branch HEAD를 다운로드
+        dl_revision = revision if revision else branch
+        logging.info(
+            "Downloading dataset from Hub (repo=%s, revision=%s)", repo_id, dl_revision
+        )
+        snapshot_download(repo_id, repo_type="dataset", local_dir=src_root, revision=dl_revision)
 
-    episode_records = load_episode_records(root)
-    info = load_info(root).to_dict()
+    episode_records = load_episode_records(src_root)
+    info = load_info(src_root).to_dict()
     video_keys = [key for key, ft in info["features"].items() if ft.get("dtype") == "video"]
     chunks_size = info.get("chunks_size", DEFAULT_CHUNK_SIZE)
 
-    new_root = root.parent / f"{root.name}_{V21}"
+    out_name = _build_output_name(repo_name, branch, revision)
+    new_root = base_dir / out_name
 
     if new_root.is_dir():
         shutil.rmtree(new_root)
-
     new_root.mkdir(parents=True, exist_ok=True)
 
-    convert_info(root, new_root, episode_records, video_keys)
-    copy_global_stats(root, new_root)
-    convert_tasks(root, new_root)
-    convert_data(root, new_root, episode_records, chunks_size)
-    convert_videos(root, new_root, episode_records, video_keys, chunks_size)
+    convert_info(src_root, new_root, episode_records, video_keys)
+    copy_global_stats(src_root, new_root)
+    convert_tasks(src_root, new_root)
+    convert_data(src_root, new_root, episode_records, chunks_size)
+    convert_videos(src_root, new_root, episode_records, video_keys, chunks_size)
     convert_episodes_metadata(new_root, episode_records)
-    copy_ancillary_directories(root, new_root)
+    copy_ancillary_directories(src_root, new_root)
 
     logging.info("Conversion complete. v2.1 dataset saved to %s", new_root)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Convert a LeRobot v3.0 dataset to v2.1 for a specific branch and revision."
+    )
     parser.add_argument(
         "--repo-id",
         type=str,
         required=True,
-        help="Repository identifier on Hugging Face (e.g. `lerobot/pusht`).",
+        help="Repository identifier on Hugging Face (e.g. `DidenRobotics/push-buttons`).",
+    )
+    parser.add_argument(
+        "--branch",
+        type=str,
+        required=True,
+        help="Branch name identifying the task (e.g. `push-green-button`).",
+    )
+    parser.add_argument(
+        "--revision",
+        type=str,
+        default=None,
+        help=(
+            "Specific commit SHA or tag within the branch. "
+            "Omit to use the latest commit on --branch."
+        ),
     )
     parser.add_argument(
         "--root",
         type=str,
         default=None,
-        help="Local directory under which the dataset should be stored.",
+        help="Local directory under which datasets are stored. Defaults to HF_LEROBOT_HOME.",
     )
     parser.add_argument(
         "--force-conversion",
@@ -540,4 +554,10 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     init_logging()
     args = parse_args()
-    convert_dataset(**vars(args))
+    convert_dataset(
+        repo_id=args.repo_id,
+        branch=args.branch,
+        revision=args.revision,
+        root=args.root,
+        force_conversion=args.force_conversion,
+    )
