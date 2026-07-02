@@ -1,7 +1,7 @@
 """GR00T N1.7 embodiment config for DIDEN humanoid v1 upper-body with DG-5F hands.
 
 Usage (finetuning script):
-    from diden_vr.groot_embodiment_hand import register_diden_humanoid_right_hand
+    from sim_hand.src.groot_embodiment_hand import register_diden_humanoid_right_hand
     register_diden_humanoid_right_hand()
 
 Then pass ``EmbodimentTag.NEW_EMBODIMENT`` to the GR00T trainer.

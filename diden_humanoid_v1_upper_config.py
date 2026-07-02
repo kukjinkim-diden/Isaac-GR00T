@@ -1,7 +1,7 @@
 """GR00T N1.7 embodiment config for DIDEN humanoid v1 upper-body.
 
 Usage (finetuning script):
-    from diden_vr.groot_embodiment import register_diden_humanoid
+    from sim_hand.src.groot_embodiment import register_diden_humanoid
     register_diden_humanoid()
 
 Then pass ``EmbodimentTag.NEW_EMBODIMENT`` to the GR00T trainer.
