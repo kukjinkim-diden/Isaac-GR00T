@@ -35,27 +35,6 @@ from gr00t.model.modules.embodiment_conditioned_mlp import (
 logger = logging.getLogger(__name__)
 
 
-def weight_arm_action_loss(
-    action_loss: torch.Tensor, arm_action_dim: int, arm_weight: float
-) -> torch.Tensor:
-    """Scale the loss of the first `arm_action_dim` action dims by `arm_weight`.
-
-    The shared flow head splits its gradient across all action dims, so the many
-    finger dims (high variance, large normalized swings) drown out the few arm dims
-    and the arm degrades. Up-weighting the arm dims (which come first in the action
-    layout) rebalances that. No-op when arm_action_dim<=0 or arm_weight==1.0.
-
-    action_loss: (B, H, D) per-element loss. Returns a new tensor (autograd-safe).
-    """
-    if arm_action_dim <= 0 or arm_weight == 1.0:
-        return action_loss
-    dim_w = torch.ones(
-        action_loss.shape[-1], device=action_loss.device, dtype=action_loss.dtype
-    )
-    dim_w[:arm_action_dim] = arm_weight
-    return action_loss * dim_w  # broadcast over (B, H, D)
-
-
 class Gr00tN1d7ActionHead(nn.Module):
     """Action head component for flow matching diffusion policy."""
 
@@ -282,11 +261,6 @@ class Gr00tN1d7ActionHead(nn.Module):
         # Slice out only the action portion of pred and target.
         action_mask = action_input.action_mask
         action_loss = F.mse_loss(pred_actions, velocity, reduction="none") * action_mask
-        action_loss = weight_arm_action_loss(
-            action_loss,
-            arm_action_dim=getattr(self.config, "arm_action_dim", 0),
-            arm_weight=getattr(self.config, "arm_action_loss_weight", 1.0),
-        )
         loss = action_loss.sum() / (action_mask.sum() + 1e-6)
 
         return {

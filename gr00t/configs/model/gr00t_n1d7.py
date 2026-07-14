@@ -113,13 +113,6 @@ class Gr00tN1d7Config(PretrainedConfig):
     tune_diffusion_model: bool = True
     tune_vlln: bool = True
 
-    # Per-group action loss weighting. A single shared flow head over-fits the many
-    # high-variance finger dims at the expense of the few arm dims (finger:arm gradient
-    # ~= n_finger:n_arm). Weight the first `arm_action_dim` action dims (arm is first in
-    # the action layout) by `arm_action_loss_weight` to rebalance. dim=0 disables.
-    arm_action_loss_weight: float = 1.0
-    arm_action_dim: int = 0
-
     # State augmentation parameters
     state_dropout_prob: float = 0.8  # State dropout probability
     exclude_state: bool = False  # Zero out all state inputs (ablation)

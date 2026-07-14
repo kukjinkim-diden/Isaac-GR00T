@@ -57,15 +57,6 @@ class FinetuneConfig:
     tune_diffusion_model: bool = True
     """If True, fine-tune the diffusion-based action decoder (if present in the model)."""
 
-    arm_action_loss_weight: float = 1.0
-    """Loss weight for the first `arm_action_dim` action dims. >1 up-weights the arm so
-    the shared flow head is not dominated by the many finger dims (which degrades the
-    arm). 1.0 disables. Try ~3 (n_finger/n_arm) to balance, higher to prioritize arm."""
-
-    arm_action_dim: int = 0
-    """Number of leading action dims that are the arm (arm comes first in the action
-    layout, e.g. 7 for left_arm_joint_pos). 0 disables arm loss weighting."""
-
     state_dropout_prob: float = 0.2
     """
     Dropout probability applied to state inputs for regularization during training.
