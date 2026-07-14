@@ -10,6 +10,7 @@
 #   bash multi_train.sh                 # 전체 태스크 학습 후 HF 업로드
 #   bash multi_train.sh 2 3            # 태스크 인덱스 2,3만
 #   ARM_W=5 bash multi_train.sh        # 팔 loss 가중 조정 (기본 3 = n_finger/n_arm)
+#   MAX_STEPS=10000 bash multi_train.sh # 학습 step 늘리기 (기본 2000)
 #   PUSH_HF=0 bash multi_train.sh      # HF 업로드 건너뛰기 (학습만)
 #   CKPT=1000 bash multi_train.sh      # 다른 스텝 체크포인트 업로드 (기본 MAX_STEPS)
 
@@ -25,7 +26,7 @@ DATASETS=(
 CONFIG=./diden_humanoid_v1_upper_left_arm_hand_config.py  # 팔+손 결합 config
 ARM_W="${ARM_W:-3.0}"               # 팔 action loss 가중 (손:팔 dim ≈ 20:7 ≈ 3 상쇄)
 ARM_DIM="${ARM_DIM:-7}"             # 앞쪽 arm action dim 수 (left_arm_joint_pos)
-MAX_STEPS=2000
+MAX_STEPS="${MAX_STEPS:-2000}"      # 학습 step (27-dim 결합은 undertraining 취약 → 늘려볼 것)
 CKPT="${CKPT:-$MAX_STEPS}"          # 업로드할 체크포인트 스텝 (학습 스텝과 기본 동기화)
 PUSH_HF="${PUSH_HF:-1}"             # 1이면 학습 성공 후 HF 업로드
 HF_REPO="${HF_REPO:-DidenRobotics/Humanoid-Upper-Hand-v1}"
