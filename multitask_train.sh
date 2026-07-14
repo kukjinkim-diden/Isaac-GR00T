@@ -21,6 +21,7 @@ DATASETS=(
 
 CONFIG=./diden_humanoid_v1_upper_left_arm_hand_config.py  # 팔+손 결합 config
 MAX_STEPS="${MAX_STEPS:-20000}"     # 태스크 4배 → 단일 태스크(2000) 대비 넉넉히
+SAVE_STEPS="${SAVE_STEPS:-$((MAX_STEPS / 4))}"  # 기본 max_steps/4 (20000 → 5000마다 저장)
 CKPT="${CKPT:-$MAX_STEPS}"          # 업로드할 체크포인트 스텝
 PUSH_HF="${PUSH_HF:-1}"
 HF_REPO="${HF_REPO:-DidenRobotics/Humanoid-Upper-Hand-v1}"
@@ -41,7 +42,7 @@ uv run gr00t/experiment/launch_finetune.py \
     --modality-config-path "$CONFIG" \
     --num-gpus 1 \
     --output-dir "$OUT_DIR" \
-    --save-steps 1000 --save-total-limit 5 --max-steps "$MAX_STEPS" \
+    --save-steps "$SAVE_STEPS" --save-total-limit 5 --max-steps "$MAX_STEPS" \
     --global-batch-size 32 --dataloader-num-workers 4 --use-wandb \
     --color-jitter-params brightness 0.3 contrast 0.4 saturation 0.5 hue 0.08 \
     || { echo "[FAIL] multitask train"; exit 1; }
