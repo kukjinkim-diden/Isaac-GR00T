@@ -20,13 +20,14 @@
 set -u
 
 DATASETS=(
-    /workspace/dataset/DidenRobotics/Humanoid_V1_Hand/quest_joystick/task_00_press_button_green
-    /workspace/dataset/DidenRobotics/Humanoid_V1_Hand/quest_joystick/task_01_press_button_red
-    /workspace/dataset/DidenRobotics/Humanoid_V1_Hand/quest_joystick/task_02_press_button_blue
-    /workspace/dataset/DidenRobotics/Humanoid_V1_Hand/quest_joystick/task_03_press_button_white
+    /home/diden/dataset/DidenRobotics/Humanoid_V1_Hand/isaac_quest_joystick_fixed_hand/task_00_press_button_red
+    /home/diden/dataset/DidenRobotics/Humanoid_V1_Hand/isaac_quest_joystick_fixed_hand/task_01_press_button_blue
+    /home/diden/dataset/DidenRobotics/Humanoid_V1_Hand/isaac_quest_joystick_fixed_hand/task_02_press_button_yellow
+    /home/diden/dataset/DidenRobotics/Humanoid_V1_Hand/isaac_quest_joystick_fixed_hand/task_03_press_button_white
+    /home/diden/dataset/DidenRobotics/Humanoid_V1_Hand/isaac_quest_joystick_fixed_hand/task_04_press_button_green
 )
 
-CONFIG=./diden_humanoid_v1_upper_left_arm_hand_config.py  # 팔+손 결합 config
+CONFIG=./diden_humanoid_v1_upper_both_arm_hand_config.py  # 팔+손 결합 config
 MAX_STEPS="${MAX_STEPS:-100000}"    # 100k step
 # eval loss ↔ success rate 상관분석용 체크포인트 스텝 (비균일)
 SAVE_STEPS_LIST="${SAVE_STEPS_LIST:-1000 2000 5000 10000 20000 50000 100000}"
@@ -35,7 +36,7 @@ EVAL_SPLIT="${EVAL_SPLIT:-0.1}"     # 훈련 데이터의 10%를 open-loop eval�
 CKPT="${CKPT:-$MAX_STEPS}"          # 업로드할 체크포인트 스텝
 PUSH_HF="${PUSH_HF:-1}"
 HF_REPO="${HF_REPO:-DidenRobotics/Humanoid-Upper-Hand-v1}"
-OUT_DIR="./checkpoints/diden_humanoid_v1_left_armhand_multitask"
+OUT_DIR="./checkpoints/diden_humanoid_v1_both_armhand_multitask"
 
 echo "════════════════════════════════════════════════════════"
 echo "  multitask finetune (max_steps=$MAX_STEPS)"
@@ -64,7 +65,7 @@ uv run gr00t/experiment/launch_finetune.py \
 # ── 학습 성공 → HF 업로드 ──────────────────────────────────────────
 [ "$PUSH_HF" = "1" ] || { echo "학습 완료 (업로드 생략)"; exit 0; }
 ckpt_dir="$OUT_DIR/checkpoint-${CKPT}"
-repo_path="humanoid-v1-upper-left_armhand_multitask"
+repo_path="humanoid-v1-upper-both_armhand_multitask"
 if [ ! -d "$ckpt_dir" ]; then
     echo "[SKIP] 체크포인트 없음: $ckpt_dir"; exit 1
 fi
