@@ -31,7 +31,11 @@ from gr00t.configs.base_config import Config
 
 # Use custom trainer that profiles data loading & forward times
 from gr00t.experiment.trainer import Gr00tTrainer, ProfCallback
-from gr00t.experiment.utils import BestMetricCheckpointCallback, CheckpointFormatCallback
+from gr00t.experiment.utils import (
+    BestMetricCheckpointCallback,
+    CheckpointFormatCallback,
+    SaveStepsListCallback,
+)
 from gr00t.model import MODEL_REGISTRY
 from gr00t.utils.initial_actions import INITIAL_ACTIONS_FILENAME, save_initial_actions
 
@@ -205,6 +209,12 @@ def run(config: Config):
     else:
         per_device_train_batch_size = config.training.batch_size
 
+    # Checkpointing: explicit step list (via SaveStepsListCallback) overrides the
+    # uniform save_steps schedule and keeps every listed checkpoint.
+    use_save_steps_list = bool(config.training.save_steps_list)
+    save_strategy = "no" if use_save_steps_list else "steps"
+    save_total_limit = None if use_save_steps_list else config.training.save_total_limit
+
     # Create training arguments
     training_args = TrainingArguments(
         output_dir=str(output_dir),
@@ -218,8 +228,9 @@ def run(config: Config):
         warmup_ratio=config.training.warmup_ratio,
         max_grad_norm=config.training.max_grad_norm,
         logging_steps=config.training.logging_steps,
+        save_strategy=save_strategy,
         save_steps=config.training.save_steps,
-        save_total_limit=config.training.save_total_limit,
+        save_total_limit=save_total_limit,
         save_only_model=config.training.save_only_model,
         fp16=config.training.fp16,
         bf16=config.training.bf16,
@@ -256,6 +267,10 @@ def run(config: Config):
             processor_dir=processor_dir,
         )
     )
+
+    if config.training.save_steps_list:
+        trainer.add_callback(SaveStepsListCallback(config.training.save_steps_list))
+        logging.info(f"Checkpointing at explicit steps: {sorted(config.training.save_steps_list)}")
 
     if config.training.save_best_eval_metric_name != "":
         trainer.add_callback(

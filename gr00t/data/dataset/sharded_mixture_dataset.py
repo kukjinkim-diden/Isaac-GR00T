@@ -366,6 +366,15 @@ class ShardedMixtureDataset(IterableDataset):
         4. Shuffle timesteps within each shard for additional randomization
         5. Handle epoch transitions and schedule regeneration
         """
+        # Eval mode: iterate every shard exactly once and stop (the training loop
+        # below is infinite, which would hang HF Trainer's evaluation loop).
+        if not self.training:
+            for dataset_index, shard_index in self.filter_shard_sample_schedule():
+                shard = self.datasets[dataset_index].get_shard(shard_index)
+                for index in range(len(shard)):
+                    yield shard[index]
+            return
+
         # Start background thread pool
         self._executor = ThreadPoolExecutor(max_workers=1)
 

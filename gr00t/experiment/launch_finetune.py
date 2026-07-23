@@ -100,7 +100,12 @@ if __name__ == "__main__":
     config.training.gradient_accumulation_steps = ft_config.gradient_accumulation_steps
     config.training.output_dir = ft_config.output_dir
     config.training.save_steps = ft_config.save_steps
+    config.training.save_steps_list = list(ft_config.save_steps_list)
     config.training.save_total_limit = ft_config.save_total_limit
+    config.training.eval_strategy = ft_config.eval_strategy
+    config.training.eval_steps = ft_config.eval_steps
+    config.training.eval_set_split_ratio = ft_config.eval_set_split_ratio
+    config.training.eval_batch_size = ft_config.eval_batch_size
     config.training.num_gpus = ft_config.num_gpus
     config.training.use_wandb = ft_config.use_wandb
     config.training.max_steps = ft_config.max_steps

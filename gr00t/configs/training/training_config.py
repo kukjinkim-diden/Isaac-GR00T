@@ -57,6 +57,10 @@ class TrainingConfig:
     logging_steps: int = 10
     save_steps: int = 1000
     save_total_limit: int = 5
+    save_steps_list: list[int] = field(default_factory=list)
+    """Explicit step numbers to checkpoint at (e.g. [1000, 5000, 10000]). Non-uniform.
+    When non-empty, overrides the uniform save_steps schedule and keeps every listed
+    checkpoint (save_total_limit is ignored so none are rotated away)."""
 
     # Model saving
     save_vl_model: bool = False  # Control whether to save VL model and processor in callbacks

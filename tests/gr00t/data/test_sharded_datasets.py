@@ -225,6 +225,14 @@ class TestShardedMixtureDataset:
         total_shards = sum(len(d) for d in mixture.datasets)
         assert len(schedule) == total_shards
 
+    def test_eval_iteration_is_finite(self):
+        """Eval-mode __iter__ must terminate (training-mode loops forever)."""
+        mixture = self._make_mixture(num_datasets=2, training=False)
+        with patch("torch.distributed.is_initialized", return_value=False):
+            items = list(mixture)  # would hang if infinite
+        # 2 datasets x 5 shards x 100 steps
+        assert len(items) == 2 * 5 * 100
+
     def test_get_dataset_statistics(self):
         mixture = self._make_mixture()
         stats = mixture.get_dataset_statistics()
@@ -317,3 +325,43 @@ class TestShardedSingleStepDataset:
 
         # effective = 50 - 8 + 1 = 43
         assert dataset.get_effective_episode_length(0) == 43
+
+    def test_eval_split_is_disjoint_and_deterministic(self):
+        """train/eval splits from the same seed must be disjoint and cover all episodes."""
+        from gr00t.data.embodiment_tags import EmbodimentTag
+        from gr00t.data.types import ModalityConfig
+        from gr00t.data.dataset.sharded_single_step_dataset import ShardedSingleStepDataset
+
+        modality_configs = {
+            "video": ModalityConfig(delta_indices=[0], modality_keys=["cam"]),
+            "state": ModalityConfig(delta_indices=[0], modality_keys=["x"]),
+            "action": ModalityConfig(delta_indices=list(range(4)), modality_keys=["x"]),
+            "language": ModalityConfig(delta_indices=[0], modality_keys=["task"]),
+        }
+
+        def _episodes_of(split):
+            with patch(
+                "gr00t.data.dataset.sharded_single_step_dataset.LeRobotEpisodeLoader"
+            ) as MockLoader:
+                mock_loader = MagicMock()
+                mock_loader.episode_lengths = [50] * 10  # 10 episodes
+                mock_loader.get_episode_length = lambda idx: 50
+                MockLoader.return_value = mock_loader
+                ds = ShardedSingleStepDataset(
+                    dataset_path="/fake/dataset",
+                    embodiment_tag=EmbodimentTag.NEW_EMBODIMENT,
+                    modality_configs=modality_configs,
+                    shard_size=64,
+                    episode_sampling_rate=0.5,
+                    seed=42,
+                    eval_split_ratio=0.1,
+                    split=split,
+                )
+            return {ep for shard in ds.sharded_episodes for ep, _ in shard}
+
+        train_eps = _episodes_of("train")
+        eval_eps = _episodes_of("eval")
+        assert len(eval_eps) == 1  # round(0.1 * 10)
+        assert len(train_eps) == 9
+        assert train_eps.isdisjoint(eval_eps)
+        assert train_eps | eval_eps == set(range(10))

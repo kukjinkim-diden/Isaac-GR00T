@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Finetune config used for single node post-training.
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -125,8 +125,26 @@ class FinetuneConfig:
     save_steps: int = 1000
     """Frequency (in training steps) at which to save checkpoints."""
 
+    save_steps_list: list[int] = field(default_factory=list)
+    """Explicit steps to checkpoint at (e.g. --save-steps-list 1000 5000 10000).
+    Non-uniform; when set, overrides save_steps and keeps every listed checkpoint."""
+
     save_total_limit: int = 5
-    """Maximum number of checkpoints to keep before older ones are deleted."""
+    """Maximum number of checkpoints to keep before older ones are deleted.
+    Ignored when save_steps_list is set (all listed checkpoints are kept)."""
+
+    # --- Evaluation (open-loop eval loss on a held-out episode split) ---
+    eval_strategy: str = "no"
+    """Evaluation cadence: 'no', 'steps', or 'epoch'. Set 'steps' to log eval loss."""
+
+    eval_steps: int = 1000
+    """Run + log open-loop eval loss every N steps (when eval_strategy='steps')."""
+
+    eval_set_split_ratio: float = 0.1
+    """Fraction of episodes held out (never trained on) for the eval set."""
+
+    eval_batch_size: int = 2
+    """Per-device batch size during evaluation."""
 
     num_gpus: int = 1
     """Number of GPUs available for distributed or single-node training."""

@@ -140,8 +140,16 @@ class ShardedSingleStepDataset(ShardedDataset):
         episode_sampling_rate: float = 0.1,
         seed: int = 42,
         allow_padding: bool = False,
+        eval_split_ratio: float = 0.0,
+        split: str = "train",
     ):
-        """Initialize single-step dataset with sharding configuration."""
+        """Initialize single-step dataset with sharding configuration.
+
+        eval_split_ratio/split: hold out a fraction of *episodes* as an open-loop
+        eval set. Two instances built from the same dataset with the same seed and
+        opposite ``split`` are disjoint and deterministic (same episode permutation),
+        so eval episodes are never seen during training.
+        """
         super().__init__(dataset_path)
         self.embodiment_tag = embodiment_tag
         self.modality_configs = modality_configs
@@ -151,6 +159,9 @@ class ShardedSingleStepDataset(ShardedDataset):
         self.episode_sampling_rate = episode_sampling_rate
         self.seed = seed
         self.allow_padding = allow_padding
+        assert split in ("train", "eval"), f"split must be 'train' or 'eval', got {split}"
+        self.eval_split_ratio = eval_split_ratio
+        self.split = split
         self.processor = None
         self.rng = np.random.default_rng(seed)
         action_delta_indices = modality_configs["action"].delta_indices
@@ -187,6 +198,25 @@ class ShardedSingleStepDataset(ShardedDataset):
         assert len(shuffled_episode_indices) > 0, (
             f"No valid trajectories found for dataset {self.dataset_path}"
         )
+
+        # Episode-level train/eval hold-out. Same permutation on both instances →
+        # disjoint & deterministic. Eval = first n_eval episodes, train = the rest.
+        if self.eval_split_ratio > 0.0:
+            n_total = len(shuffled_episode_indices)
+            n_eval = max(1, int(round(self.eval_split_ratio * n_total)))
+            assert n_eval < n_total, (
+                f"eval_split_ratio={self.eval_split_ratio} leaves no training episodes "
+                f"(n_total={n_total})"
+            )
+            if self.split == "eval":
+                shuffled_episode_indices = shuffled_episode_indices[:n_eval]
+            else:
+                shuffled_episode_indices = shuffled_episode_indices[n_eval:]
+            print(
+                f"[split={self.split}] dataset {self.dataset_path}: "
+                f"{len(shuffled_episode_indices)}/{n_total} episodes "
+                f"(eval_split_ratio={self.eval_split_ratio})"
+            )
 
         # Calculate total timesteps and required number of shards
         total_steps = np.sum(

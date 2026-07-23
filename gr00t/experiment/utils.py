@@ -71,6 +71,24 @@ class CheckpointFormatCallback(TrainerCallback):
                 shutil.copy2(wandb_config_src, wandb_config_dst)
 
 
+class SaveStepsListCallback(TrainerCallback):
+    """Force a checkpoint save at an explicit, possibly non-uniform, list of steps.
+
+    HF's ``save_steps`` only expresses a uniform interval. To checkpoint at
+    e.g. [1000, 2000, 5000, 10000, 20000, 50000, 100000] we set save_strategy="no"
+    and flip ``control.should_save`` on exactly those steps.
+    """
+
+    def __init__(self, save_steps_list):
+        self.save_steps = sorted({int(s) for s in save_steps_list})
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step in self.save_steps:
+            control.should_save = True
+            print(f"[SaveStepsListCallback] checkpointing at step {state.global_step}")
+        return control
+
+
 class BestMetricCheckpointCallback(TrainerCallback):
     """This callback saves the best checkpoint based on the metric."""
 

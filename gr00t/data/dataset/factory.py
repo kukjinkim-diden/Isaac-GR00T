@@ -37,17 +37,53 @@ class DatasetFactory:
     def build(
         self, processor: BaseProcessor
     ) -> tuple[ShardedMixtureDataset, ShardedMixtureDataset | None]:
-        """Build the dataset. Returns a tuple of (train_dataset, eval_dataset)."""
-        assert self.config.training.eval_strategy == "no", (
-            "Sharded dataset does not support evaluation sets"
+        """Build the dataset. Returns a tuple of (train_dataset, eval_dataset).
+
+        When ``eval_strategy != "no"`` and ``eval_set_split_ratio > 0``, a fraction
+        of *episodes* is held out per dataset for an open-loop eval set (disjoint from
+        train), and ``eval_dataset`` is a non-training mixture over those episodes.
+        """
+        eval_strategy = self.config.training.eval_strategy
+        eval_ratio = getattr(self.config.training, "eval_set_split_ratio", 0.0)
+        build_eval = eval_strategy != "no" and eval_ratio > 0.0
+        # Only split off eval episodes when we actually build an eval set.
+        split_ratio = eval_ratio if build_eval else 0.0
+
+        train_datasets, train_weights = self._build_split("train", split_ratio)
+        train_mixture = ShardedMixtureDataset(
+            datasets=train_datasets,
+            weights=train_weights,
+            processor=processor,
+            seed=self.config.data.seed,
+            training=True,
+            num_shards_per_epoch=self.config.data.num_shards_per_epoch,
+            override_pretraining_statistics=self.config.data.override_pretraining_statistics,
         )
 
+        if not build_eval:
+            return train_mixture, None
+
+        eval_datasets, eval_weights = self._build_split("eval", split_ratio)
+        eval_mixture = ShardedMixtureDataset(
+            datasets=eval_datasets,
+            weights=eval_weights,
+            processor=processor,
+            seed=self.config.data.seed,
+            training=False,
+            num_shards_per_epoch=self.config.data.num_shards_per_epoch,
+            override_pretraining_statistics=self.config.data.override_pretraining_statistics,
+        )
+        print(f"[DatasetFactory] built eval set (split_ratio={eval_ratio}, strategy={eval_strategy})")
+        return train_mixture, eval_mixture
+
+    def _build_split(self, split: str, eval_split_ratio: float):
+        """Build the list of ShardedSingleStepDatasets + mixture weights for one split."""
         all_datasets = []
         all_weights = []
         for dataset_spec in tqdm(
             self.config.data.datasets,
             total=len(self.config.data.datasets),
-            desc="Initializing datasets",
+            desc=f"Initializing datasets ({split})",
         ):
             datasets = []
             for dataset_path in dataset_spec.dataset_paths:
@@ -71,6 +107,8 @@ class DatasetFactory:
                     episode_sampling_rate=self.config.data.episode_sampling_rate,
                     seed=self.config.data.seed,
                     allow_padding=self.config.data.allow_padding,
+                    eval_split_ratio=eval_split_ratio,
+                    split=split,
                 )
                 datasets.append(dataset)
             dataset_lengths = np.array([len(dataset) for dataset in datasets])
@@ -79,16 +117,4 @@ class DatasetFactory:
                 weight = relative_length * dataset_spec.mix_ratio
                 all_datasets.append(dataset)
                 all_weights.append(weight)
-
-        return (
-            ShardedMixtureDataset(
-                datasets=all_datasets,
-                weights=all_weights,
-                processor=processor,
-                seed=self.config.data.seed,
-                training=True,
-                num_shards_per_epoch=self.config.data.num_shards_per_epoch,
-                override_pretraining_statistics=self.config.data.override_pretraining_statistics,
-            ),
-            None,
-        )
+        return all_datasets, all_weights

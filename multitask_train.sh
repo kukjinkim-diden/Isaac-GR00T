@@ -4,11 +4,18 @@
 # 물리적 데이터셋 병합/재업로드 없음 — GR00T가 load 시점에 dataset_paths 리스트를 합쳐준다.
 # 각 에피소드의 task annotation이 유지되므로 진짜 멀티태스크 학습.
 #
+# eval loss는 훈련 데이터의 10%를 episode 단위로 홀드아웃(EVAL_SPLIT)해 EVAL_STEPS마다
+# 계산하고 wandb에 eval_loss로 기록한다. 체크포인트는 SAVE_STEPS_LIST의 각 스텝에 저장되어
+# (해당 스텝의 eval_loss와 나란히) eval loss ↔ success rate 상관분석에 쓸 수 있다.
+#
 # Usage:
-#   bash multitask_train.sh                  # 4개 태스크 합쳐 학습 후 HF 업로드
-#   MAX_STEPS=30000 bash multitask_train.sh  # 학습 step (기본 20000)
-#   PUSH_HF=0 bash multitask_train.sh        # HF 업로드 건너뛰기 (학습만)
-#   CKPT=10000 bash multitask_train.sh       # 다른 스텝 체크포인트 업로드 (기본 MAX_STEPS)
+#   bash multitask_train.sh                     # 4개 태스크 합쳐 학습 후 HF 업로드
+#   MAX_STEPS=50000 bash multitask_train.sh     # 학습 step (기본 100000)
+#   EVAL_STEPS=500 bash multitask_train.sh      # eval loss 기록 주기 (기본 1000)
+#   EVAL_SPLIT=0.15 bash multitask_train.sh     # eval 홀드아웃 비율 (기본 0.1)
+#   SAVE_STEPS_LIST="1000 5000" bash multitask_train.sh  # 체크포인트 스텝 목록
+#   PUSH_HF=0 bash multitask_train.sh           # HF 업로드 건너뛰기 (학습만)
+#   CKPT=10000 bash multitask_train.sh          # 다른 스텝 체크포인트 업로드 (기본 MAX_STEPS)
 
 set -u
 
@@ -20,8 +27,11 @@ DATASETS=(
 )
 
 CONFIG=./diden_humanoid_v1_upper_left_arm_hand_config.py  # 팔+손 결합 config
-MAX_STEPS="${MAX_STEPS:-40000}"     # 태스크 4배 → 단일 태스크(2000) 대비 넉넉히
-SAVE_STEPS="${SAVE_STEPS:-$((MAX_STEPS / 4))}"  # 기본 max_steps/4 (20000 → 5000마다 저장)
+MAX_STEPS="${MAX_STEPS:-100000}"    # 100k step
+# eval loss ↔ success rate 상관분석용 체크포인트 스텝 (비균일)
+SAVE_STEPS_LIST="${SAVE_STEPS_LIST:-1000 2000 5000 10000 20000 50000 100000}"
+EVAL_STEPS="${EVAL_STEPS:-1000}"    # eval loss 기록 주기 (1000 → 위 체크포인트 스텝 전부 포함)
+EVAL_SPLIT="${EVAL_SPLIT:-0.1}"     # 훈련 데이터의 10%를 open-loop eval로 홀드아웃
 CKPT="${CKPT:-$MAX_STEPS}"          # 업로드할 체크포인트 스텝
 PUSH_HF="${PUSH_HF:-1}"
 HF_REPO="${HF_REPO:-DidenRobotics/Humanoid-Upper-Hand-v1}"
@@ -29,6 +39,8 @@ OUT_DIR="./checkpoints/diden_humanoid_v1_left_armhand_multitask"
 
 echo "════════════════════════════════════════════════════════"
 echo "  multitask finetune (max_steps=$MAX_STEPS)"
+echo "  checkpoints @ steps: $SAVE_STEPS_LIST"
+echo "  eval: every $EVAL_STEPS steps, ${EVAL_SPLIT} episode hold-out"
 echo "  datasets (${#DATASETS[@]}): "
 printf '    %s\n' "${DATASETS[@]}"
 echo "  config : $CONFIG"
@@ -42,7 +54,9 @@ uv run gr00t/experiment/launch_finetune.py \
     --modality-config-path "$CONFIG" \
     --num-gpus 1 \
     --output-dir "$OUT_DIR" \
-    --save-steps "$SAVE_STEPS" --save-total-limit 5 --max-steps "$MAX_STEPS" \
+    --save-steps-list $SAVE_STEPS_LIST --max-steps "$MAX_STEPS" \
+    --eval-strategy steps --eval-steps "$EVAL_STEPS" \
+    --eval-set-split-ratio "$EVAL_SPLIT" --eval-batch-size 2 \
     --global-batch-size 32 --dataloader-num-workers 4 --use-wandb \
     --color-jitter-params brightness 0.3 contrast 0.4 saturation 0.5 hue 0.08 \
     || { echo "[FAIL] multitask train"; exit 1; }
