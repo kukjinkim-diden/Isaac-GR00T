@@ -19,13 +19,39 @@
 
 set -u
 
-DATASETS=(
-    /home/diden/dataset/DidenRobotics/Humanoid_V1_Hand/isaac_quest_joystick_fixed_hand/task_00_press_button_red
-    /home/diden/dataset/DidenRobotics/Humanoid_V1_Hand/isaac_quest_joystick_fixed_hand/task_01_press_button_blue
-    /home/diden/dataset/DidenRobotics/Humanoid_V1_Hand/isaac_quest_joystick_fixed_hand/task_02_press_button_yellow
-    /home/diden/dataset/DidenRobotics/Humanoid_V1_Hand/isaac_quest_joystick_fixed_hand/task_03_press_button_white
-    /home/diden/dataset/DidenRobotics/Humanoid_V1_Hand/isaac_quest_joystick_fixed_hand/task_04_press_button_green
-)
+# ── 데이터셋: HF에서 해석 (절대경로 하드코딩 없음) ──────────────────────────
+# 이전에는 /home/diden/dataset/... 을 그대로 박아두어, 랩 머신이 아닌 곳에서는
+# 첫 스텝 전에 meta/info.json 없음으로 죽었다. 이제 부모 리포의
+# diden_vla/hub_datasets.py 가 HF에서 받아 로컬 경로를 출력한다 (환경 변수는
+# diden_vla/lerobot_baselines/_train_common.sh 와 동일한 규약).
+#
+#   HUB_REPO / HUB_REVISION / HUB_PREFIX / TASKS / DS_BASE
+#   DIDEN_DATA_ROOT   hub/ 캐시의 부모 (기본 ~/dataset)
+#
+# 기본 리비전은 all-intra 판이다. GR00T 로더도 에피소드 mp4에서 랜덤 프레임을
+# 읽는데, 이전 녹화분은 에피소드당 키프레임이 1개라 매 샘플이 프레임 0부터
+# 디코딩한다 (샘플당 206ms vs 37ms).
+#
+# DATASETS 를 직접 넘기면 해석을 건너뛴다 (로컬 실험용).
+# 해석기는 GR00T 의 uv 환경으로 실행한다 — 시스템 python3 에는 huggingface_hub 가
+# 없을 수 있고, 그 환경은 GR00T 가 베이스 모델을 받을 때 이미 쓰는 것이다.
+# RESOLVER_PY 로 교체 가능 (예: RESOLVER_PY="/path/venv/bin/python").
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+_RESOLVER="$(cd "$_HERE/../.." && pwd)/diden_vla/hub_datasets.py"
+if [ -z "${DATASETS:-}" ]; then
+    if [ ! -f "$_RESOLVER" ]; then
+        echo "[FAIL] 해석기 없음: $_RESOLVER"
+        echo "       이 스크립트는 DIDEN_Core 서브모듈로 체크아웃된 상태를 전제한다."
+        echo "       독립 실행 시에는 DATASETS=\"/path/task_00 /path/task_01 ...\" 로 직접 지정."
+        exit 1
+    fi
+    if [ -n "${RESOLVER_PY:-}" ]; then read -r -a _PY <<< "$RESOLVER_PY"; else _PY=(uv run python); fi
+    mapfile -t DATASETS < <("${_PY[@]}" "$_RESOLVER") \
+        || { echo "[FAIL] 데이터셋 해석 실패 (HF_TOKEN / HUB_REVISION 확인)"; exit 1; }
+    [ ${#DATASETS[@]} -gt 0 ] || { echo "[FAIL] 해석된 데이터셋이 없다"; exit 1; }
+else
+    read -r -a DATASETS <<< "$DATASETS"
+fi
 
 CONFIG=./diden_humanoid_v1_upper_both_arm_hand_config.py  # 팔+손 결합 config
 MAX_STEPS="${MAX_STEPS:-100000}"    # 100k step
