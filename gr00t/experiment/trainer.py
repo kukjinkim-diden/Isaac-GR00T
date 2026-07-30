@@ -281,6 +281,29 @@ class Gr00tTrainer(Trainer):
 
         return super().train(resume_from_checkpoint=resume_from_checkpoint, **kwargs)
 
+    def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
+        """Produce the eval loss, which Trainer's own prediction_step cannot find.
+
+        Trainer looks for a loss two ways and this model answers neither.
+        `label_names` comes from `find_labels()`, which scans forward() for a
+        parameter whose name contains "label"; the fallback (`loss_without_labels`)
+        needs a `return_loss` parameter. Gr00tN1d7.forward's signature is
+        `forward(self, inputs)` — one dict — so `has_labels` and
+        `loss_without_labels` are both False, prediction_step takes its no-loss
+        branch, and an eval pass reports `eval_runtime` and nothing else. No
+        eval_loss reaches wandb, which is the metric the eval-loss-vs-success-rate
+        checkpoint sweep exists to collect.
+
+        The loss is well defined here: the same forward the training step uses
+        returns it. Loss only, no logits — `compute_metrics` is unset, so the
+        action tensors in the output would be gathered and concatenated across the
+        whole eval set for nobody to read.
+        """
+        inputs = self._prepare_inputs(inputs)
+        with torch.no_grad(), self.compute_loss_context_manager():
+            loss = self.compute_loss(model, inputs)
+        return (loss.detach().mean(), None, None)
+
     # ------------------------------------------------------------------
     # Loss / accuracy computation override
     # ------------------------------------------------------------------

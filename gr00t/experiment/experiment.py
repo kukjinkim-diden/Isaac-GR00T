@@ -40,6 +40,23 @@ from gr00t.model import MODEL_REGISTRY
 from gr00t.utils.initial_actions import INITIAL_ACTIONS_FILENAME, save_initial_actions
 
 
+# Keep accelerate from slicing eval batches. Only the eval loader goes through
+# accelerator.prepare() — Gr00tTrainer.get_train_dataloader returns a raw
+# DataLoader — and prepare() defaults dispatch_batches to True for an
+# IterableDataset (which ShardedMixtureDataset is). DataLoaderDispatcher then
+# reads the batch size off the FIRST tensor it finds in the batch and slices
+# EVERY tensor to it along dim 0. Qwen VL's pixel_values has no batch axis (it is
+# [total_patches, D], concatenated over the batch's images), so it got truncated
+# to eval_batch_size rows while image_grid_thw still declared all the patches,
+# and the vision tower died on the first eval step with
+#   RuntimeError: The size of tensor a (2) must match the size of tensor b (512)
+#                 at non-singleton dimension 0
+# 1000 steps into a run. False makes accelerate use DataLoaderShard, which for
+# num_processes > 1 shards per SAMPLE (IterableDatasetShard, before collation) —
+# the correct split for this dataset — and is a plain pass-through on one GPU.
+EVAL_ACCELERATOR_CONFIG = {"dispatch_batches": False}
+
+
 def setup_logging(debug: bool = False):
     """Configure logging."""
     logging.basicConfig(
@@ -246,6 +263,7 @@ def run(config: Config):
         eval_strategy=config.training.eval_strategy,
         eval_steps=config.training.eval_steps,
         batch_eval_metrics=True,
+        accelerator_config=EVAL_ACCELERATOR_CONFIG,
         remove_unused_columns=config.training.remove_unused_columns,
         ignore_data_skip=True,
     )
